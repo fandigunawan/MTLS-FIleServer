@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Access to {{.Title}}</title>
+	<style>
+		* {
+			font-family: Arial, Helvetica, sans-serif;
+		}
+		table {
+		  border-collapse: collapse;
+		  width: 100%;
+		}
+		th, td {
+		  padding: 8px;
+		  text-align: left;
+		  border-bottom: 1px solid #DDD;
+		}				
+		tr:hover {background-color: #D6EEEE;}
+	</style>
+</head>
+<body>
+  <b>Secured access</b>
+  <br>Login as {{ .LoggedIn }}<br>
+	<table>
+    <tr>
+      <th>Name</th>
+      <th>Size</th>
+    </tr>
+    {{ with .Files}}
+      {{ range . }}
+        <tr>
+          <td><a href="{{.URI}}">{{.Name}}</a></td>
+          <td>
+          {{ if .IsDir }}
+            Directory
+          {{ else }}
+            {{ .Size }}
+          {{ end }}
+          </td>
+        </tr>
+      {{ end }}
+    {{ end }}
+  </table>
+</body>
+</html>

@@ -9,26 +9,47 @@ package main
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"embed"
 	"flag"
 	"fmt"
+	"html/template"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
-	"strconv"
 	"strings"
 )
+
+//go:embed index.html
+var f embed.FS
+
+type File struct {
+	Name  string
+	URI   string
+	IsDir bool
+	Size  int64
+}
+type Index struct {
+	Title    string
+	LoggedIn string
+	Files    []File
+}
 
 func fileHandler(w http.ResponseWriter, r *http.Request) {
 	log.Println(r.RemoteAddr + " - " + r.Method + " " + r.URL.RequestURI() + " - " + r.UserAgent())
 	log.Println("Subject: " + r.TLS.PeerCertificates[0].Subject.String() + " - " +
 		r.TLS.PeerCertificates[0].SerialNumber.String())
 	w.Header().Set("Server", "MTLS File Server ")
+
+	var index Index
+	index.Title = r.URL.RequestURI()
+
 	switch r.Method {
 	case "GET":
 		p := "./" + r.TLS.PeerCertificates[0].Subject.Organization[0] + r.URL.Path
 		log.Println("Local path: " + p)
 		if strings.HasSuffix(p, "/") {
+			var err error
 			files, err := ioutil.ReadDir(p)
 			if err != nil {
 				log.Println(err)
@@ -36,40 +57,30 @@ func fileHandler(w http.ResponseWriter, r *http.Request) {
 				fmt.Fprintln(w, "404 page not found")
 				return
 			}
-			fmt.Fprintln(w, `
-			<!DOCTYPE html>
-			<html>
-			<head>
-			<style>
-				* {
-					font-family: Arial, Helvetica, sans-serif;
-				}
-				table {
-				  border-collapse: collapse;
-				  width: 100%;
-				}
-				th, td {
-				  padding: 8px;
-				  text-align: left;
-				  border-bottom: 1px solid #DDD;
-				}				
-				tr:hover {background-color: #D6EEEE;}
-				</style>
-			</head>
-			<body>
-			<b>Secured access</b><br>Login as `, r.TLS.PeerCertificates[0].Subject.String(), `<br>
-			<table><tr><th>Name</th><th>Size</th></tr>`)
+			index.LoggedIn = r.TLS.PeerCertificates[0].Subject.String()
 			for _, file := range files {
 				if file.IsDir() {
-					fmt.Fprintln(w, "<tr><td><b><a href="+r.URL.Path+file.Name()+">"+file.Name()+"</a></b></td><td>Directory</td></tr>")
+					index.Files = append(index.Files, File{IsDir: true, URI: r.URL.Path + file.Name(), Name: file.Name(), Size: 0})
 				}
 			}
 			for _, file := range files {
 				if !file.IsDir() {
-					fmt.Fprintln(w, "<tr><td><a href="+r.URL.Path+file.Name()+">"+file.Name()+"</a></td><td>"+strconv.FormatInt(file.Size(), 10)+"</td></tr>")
+					index.Files = append(index.Files, File{IsDir: false, URI: r.URL.Path + file.Name(), Name: file.Name(), Size: file.Size()})
 				}
 			}
-			fmt.Fprintf(w, "</table></body></html>")
+			var tmpl *template.Template
+			tmpl, err = template.ParseFS(f, "index.html")
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			err = tmpl.Execute(w, index)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
 		} else {
 			http.ServeFile(w, r, p)
 		}
@@ -78,9 +89,7 @@ func fileHandler(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		fmt.Fprintln(w, "405 method not allowed")
 		return
-
 	}
-
 }
 
 func help() {
