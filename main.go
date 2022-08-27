@@ -17,11 +17,16 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 )
 
 //go:embed index.html
 var f embed.FS
+
+//go:embed banner.txt
+var banner string
 
 type File struct {
 	Name  string
@@ -117,6 +122,7 @@ func main() {
 	}
 
 	logger := log.New(os.Stdout, "http: ", log.LstdFlags)
+	fmt.Println(banner)
 	logger.Println("Server is starting...")
 	logger.Println("CA File  : " + caFile)
 	logger.Println("Cert File: " + certFile)
@@ -125,7 +131,7 @@ func main() {
 	http.HandleFunc("/", fileHandler)
 
 	// Create a CA certificate pool and add cert.pem to it
-	caCert, err := ioutil.ReadFile(caFile)
+	caCert, err := ioutil.ReadFile(filepath.Clean(caFile))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -134,15 +140,18 @@ func main() {
 
 	// Create the TLS Config with the CA pool and enable Client certificate validation
 	tlsConfig := &tls.Config{
-		ClientCAs:  caCertPool,
-		ClientAuth: tls.RequireAndVerifyClientCert,
+		ClientCAs:                caCertPool,
+		ClientAuth:               tls.RequireAndVerifyClientCert,
+		MinVersion:               tls.VersionTLS13,
+		PreferServerCipherSuites: true,
 	}
 	tlsConfig.BuildNameToCertificate()
 
 	// Create a Server instance to listen on port 8443 with the TLS config
 	server := &http.Server{
-		Addr:      listen,
-		TLSConfig: tlsConfig,
+		Addr:              listen,
+		TLSConfig:         tlsConfig,
+		ReadHeaderTimeout: 2 * time.Second,
 	}
 
 	// Listen to HTTPS connections with the server certificate and wait
