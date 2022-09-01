@@ -22,10 +22,14 @@ User1    User2
 ```
 You will need to create a directory in executable directory named "TestOrg". The "TestOrg" is accessible by user "User1" and "User2"
 
+Upload and delete operation is performed by Admin organization that is set via parameter, default Admin.
+For upload and delete is performed by fullpath in URL.
+
 ## Parameters
 ```
 -cafile   : CA file in PEM format (Mandatory)
 -certfile : Cert file in PEM format (Mandatory)
 -keyfile  : Private key file in PEM format (Mandatory)
 -listen   : Listen port default :8443 (Optional)
+-admin    : Admin organization name default Admin (Optional)
 ```

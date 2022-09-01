@@ -13,6 +13,7 @@ import (
 	"flag"
 	"fmt"
 	"html/template"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -40,6 +41,27 @@ type Index struct {
 	Files    []File
 }
 
+var admin string
+
+func uploadFile(w http.ResponseWriter, r *http.Request) {
+	p := "." + r.URL.Path
+	err := os.MkdirAll(filepath.Dir(p), 0644)
+	file, err := os.Create(p)
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	size, err := io.Copy(file, r.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	file.Close()
+	log.Printf("Successfully write to file: %s size=%d", p, size)
+}
+
 func fileHandler(w http.ResponseWriter, r *http.Request) {
 	log.Println(r.RemoteAddr + " - " + r.Method + " " + r.URL.RequestURI() + " - " + r.UserAgent())
 	log.Println("Subject: " + r.TLS.PeerCertificates[0].Subject.String() + " - " +
@@ -50,6 +72,28 @@ func fileHandler(w http.ResponseWriter, r *http.Request) {
 	index.Title = r.URL.RequestURI()
 
 	switch r.Method {
+	case "DELETE":
+		if r.TLS.PeerCertificates[0].Subject.Organization[0] != admin {
+			log.Println("Invalid privilege")
+			http.Error(w, "Invalid privilege", http.StatusForbidden)
+			return
+		}
+		err := os.Remove("." + r.URL.Path)
+		if err != nil {
+			log.Println(err.Error())
+			http.Error(w, "Could not delete file", http.StatusNotFound)
+			return
+		}
+		log.Printf("Successfully delete file %s", r.URL.Path)
+		break
+	case "POST":
+		if r.TLS.PeerCertificates[0].Subject.Organization[0] != admin {
+			log.Println("Invalid privilege")
+			http.Error(w, "Invalid privilege", http.StatusForbidden)
+			return
+		}
+		uploadFile(w, r)
+		break
 	case "GET":
 		p := "./" + r.TLS.PeerCertificates[0].Subject.Organization[0] + r.URL.Path
 		log.Println("Local path: " + p)
@@ -58,8 +102,7 @@ func fileHandler(w http.ResponseWriter, r *http.Request) {
 			files, err := ioutil.ReadDir(p)
 			if err != nil {
 				log.Println(err)
-				w.WriteHeader(http.StatusNotFound)
-				fmt.Fprintln(w, "404 page not found")
+				http.Error(w, "404 page not found", http.StatusNotFound)
 				return
 			}
 			index.LoggedIn = r.TLS.PeerCertificates[0].Subject.String()
@@ -76,6 +119,7 @@ func fileHandler(w http.ResponseWriter, r *http.Request) {
 			var tmpl *template.Template
 			tmpl, err = template.ParseFS(f, "index.html")
 			if err != nil {
+				log.Println(err.Error())
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
@@ -104,6 +148,7 @@ func help() {
 	fmt.Println(" -certfile : Cert file in PEM format (Mandatory)")
 	fmt.Println(" -keyfile  : Private key file in PEM format (Mandatory)")
 	fmt.Println(" -listen   : Listen port default :8443 (Optional)")
+	fmt.Println(" -admin    : Admin organization name default Admin (Optional)")
 }
 
 func main() {
@@ -114,6 +159,7 @@ func main() {
 	flag.StringVar(&certFile, "certfile", "", "")
 	flag.StringVar(&keyFile, "keyfile", "", "")
 	flag.StringVar(&listen, "listen", ":8443", "")
+	flag.StringVar(&admin, "admin", "Admin", "")
 	flag.Parse()
 
 	if len(os.Args) == 1 {
@@ -121,13 +167,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	logger := log.New(os.Stdout, "http: ", log.LstdFlags)
 	fmt.Println(banner)
-	logger.Println("Server is starting...")
-	logger.Println("CA File  : " + caFile)
-	logger.Println("Cert File: " + certFile)
-	logger.Println("Key file : " + keyFile)
-	logger.Println("Listen   : " + listen)
+	log.Println("Server is starting...")
+	log.Println("CA File  : " + caFile)
+	log.Println("Cert File: " + certFile)
+	log.Println("Key file : " + keyFile)
+	log.Println("Listen   : " + listen)
+	log.Println("Admin    : " + admin)
 	http.HandleFunc("/", fileHandler)
 
 	// Create a CA certificate pool and add cert.pem to it
